@@ -11,6 +11,8 @@ import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.common.unit.TimeValue;
+import org.elasticsearch.index.query.MultiMatchQueryBuilder;
+import org.elasticsearch.index.query.Operator;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHits;
@@ -30,7 +32,7 @@ import java.util.concurrent.TimeUnit;
 @RequestMapping("/esp")
 public class RestControllers {
 
-    private static final String INDEX ="documents";
+    private static final String INDEX = "documents";
     private final RestHighLevelClient restHighLevelClient;
     private final ObjectMapper objectMapper;
 
@@ -51,7 +53,7 @@ public class RestControllers {
 
     private long createIndexes(List<Document> documents) throws IOException {
         BulkRequest request = new BulkRequest();
-        for (Document document: documents){
+        for (Document document : documents) {
             Map<String, Object> documentMapper = objectMapper.convertValue(document, Map.class);
             UUID uuid = UUID.randomUUID();
             documentMapper.put("id", uuid.toString());
@@ -63,6 +65,7 @@ public class RestControllers {
             documentMapper.put("title", document.getTitle());
             documentMapper.put("language", document.getLanguage());
             documentMapper.put("averageRating", document.getAverageRating());
+            documentMapper.put("searchBox", document.getAuthors() + ", " + document.getOriginalTitle() + ", " + document.getTitle());
 
             request.add(new IndexRequest(INDEX).id(uuid.toString())
                     .source(documentMapper));
@@ -101,7 +104,65 @@ public class RestControllers {
         SearchHits searchHits = searchResponse.getHits();
 
         List<Document> documents = new ArrayList<>();
-        for (SearchHit searchHit:searchHits){
+        for (SearchHit searchHit : searchHits) {
+            Map<String, Object> resultMap = searchHit.getSourceAsMap();
+            documents.add(objectMapper
+                    .convertValue(resultMap, Document.class));
+        }
+
+        return documents;
+    }
+
+    @GetMapping("/search-with-boost-field")
+    public List<Document> searchWithBoostField(@RequestParam String term) throws IOException {
+        SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
+        MultiMatchQueryBuilder multiMatchQueryBuilder = QueryBuilders.multiMatchQuery(term, "title", "authors");
+        multiMatchQueryBuilder.field("authors", 10.0f);
+        multiMatchQueryBuilder.operator(Operator.AND);
+        sourceBuilder.query(multiMatchQueryBuilder);
+        sourceBuilder.from(0);
+        sourceBuilder.size(500);
+        sourceBuilder.timeout(new TimeValue(60, TimeUnit.SECONDS));
+
+        SearchRequest searchRequest = new SearchRequest();
+        searchRequest.indices(INDEX);
+        searchRequest.source(sourceBuilder);
+
+        SearchResponse searchResponse = restHighLevelClient.search(searchRequest, RequestOptions.DEFAULT);
+
+        SearchHits searchHits = searchResponse.getHits();
+
+        List<Document> documents = new ArrayList<>();
+        for (SearchHit searchHit : searchHits) {
+            Map<String, Object> resultMap = searchHit.getSourceAsMap();
+            documents.add(objectMapper
+                    .convertValue(resultMap, Document.class));
+        }
+
+        return documents;
+    }
+
+    @GetMapping("/in-search-box")
+    public List<Document> inSearchBox(@RequestParam String term) throws IOException {
+        SearchSourceBuilder sourceBuilder = new SearchSourceBuilder();
+        MultiMatchQueryBuilder multiMatchQueryBuilder = QueryBuilders.multiMatchQuery(term, "searchBox");
+        multiMatchQueryBuilder.field("authors", 10.0f);
+        multiMatchQueryBuilder.operator(Operator.AND);
+        sourceBuilder.query(multiMatchQueryBuilder);
+        sourceBuilder.from(0);
+        sourceBuilder.size(500);
+        sourceBuilder.timeout(new TimeValue(60, TimeUnit.SECONDS));
+
+        SearchRequest searchRequest = new SearchRequest();
+        searchRequest.indices(INDEX);
+        searchRequest.source(sourceBuilder);
+
+        SearchResponse searchResponse = restHighLevelClient.search(searchRequest, RequestOptions.DEFAULT);
+
+        SearchHits searchHits = searchResponse.getHits();
+
+        List<Document> documents = new ArrayList<>();
+        for (SearchHit searchHit : searchHits) {
             Map<String, Object> resultMap = searchHit.getSourceAsMap();
             documents.add(objectMapper
                     .convertValue(resultMap, Document.class));
